@@ -18,11 +18,6 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
@@ -30,7 +25,9 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+
+# --- CAMBIO IMPORTANTE AQUÍ ---
+# Quitamos /build/ para que se pueda subir la web a Vercel
 /coverage/
 
 # Symbolication related
