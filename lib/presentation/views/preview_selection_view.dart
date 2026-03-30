@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../../services/speech_service.dart';
 import '../../utils/responsive.dart';
 import '../bloc/photo_bloc.dart';
@@ -20,44 +19,52 @@ class PreviewSelectionView extends StatefulWidget {
 
 class _PreviewSelectionViewState extends State<PreviewSelectionView> {
   final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _yearController = TextEditingController();
   final SpeechService _speech = SpeechService();
-  String? _suggestedTitle;
   bool _saving = false;
+  String? _yearError;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeSuggestYear());
-  }
-
-  Future<void> _maybeSuggestYear() async {
-    final provider = Provider.of<PhotoProvider>(context, listen: false);
-    final years = <String>{};
-    for (var photo in provider.photos) {
-      final y = _extractYearFromName(photo.name);
-      if (y != null) years.add(y);
-    }
-    if (years.length == 1) {
-      setState(() {
-        _suggestedTitle = years.first;
-      });
-    }
-  }
-
-  String? _extractYearFromName(String name) {
-    final regex = RegExp(r'(19|20)\d{2}');
-    final match = regex.firstMatch(name);
-    return match?.group(0);
+  int? get _parsedYear {
+    final v = int.tryParse(_yearController.text.trim());
+    if (v == null) return null;
+    if (v < 1900 || v > DateTime.now().year) return null;
+    return v;
   }
 
   Future<void> _dictateTitle() async {
     if (await _speech.init()) {
       await _speech.startListening((words) {
-        if (words.isNotEmpty) {
-          _titleController.text = words;
-        }
+        if (words.isNotEmpty) _titleController.text = words;
       }, continuous: false);
     }
+  }
+
+  Future<void> _save(PhotoProvider provider) async {
+    final year = _parsedYear;
+    if (year == null) {
+      setState(() => _yearError = 'Ingresá un año válido (ej: 2019)');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _yearError = null;
+    });
+    final name = _titleController.text.isNotEmpty
+        ? _titleController.text
+        : 'Álbum $year';
+    await provider.saveAlbum(name, year: year);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const AlbumsListView()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _yearController.dispose();
+    super.dispose();
   }
 
   @override
@@ -66,55 +73,45 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
     final photos = provider.photos;
     final selectedCount = provider.selected.length;
     final totalCount = photos.length;
-
-    // Ajustes de tamaño responsivo para botones
     final buttonWidth = wp(context, 40);
-    final buttonHeight = 55.0; 
+    const buttonHeight = 55.0;
     final fontNormal = rf(context, 3.5);
 
-    void _handleVoice(String command) async {
+    void handleVoice(String command) async {
       final cmd = command.toLowerCase().trim();
-
       if (cmd == 'cancelar') {
-        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const UploadView()), (r) => false);
+        provider.clear();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const UploadView()),
+          (r) => false,
+        );
         return;
       }
       if (cmd == 'subir y guardar' || cmd == 'guardar') {
-        if (selectedCount > 0) {
-          setState(() => _saving = true);
-          final name = _titleController.text.isNotEmpty ? _titleController.text : (_suggestedTitle ?? 'Álbum');
-          await provider.saveAlbum(name);
-          if (!context.mounted) return;
-          setState(() => _saving = false);
-          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const AlbumsListView()));
-        }
+        if (selectedCount > 0) await _save(provider);
         return;
       }
-
-      if (cmd == 'finalizar') {
-        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const UploadView()), (r) => false);
-        return;
-      }
-
       NavigationService.handleVoiceCommand(command, context);
     }
 
     return VideoBackgroundView(
       appBar: AppBar(
-        title: Text('Vista previa y selección', style: TextStyle(fontSize: rf(context, 4.5))),
+        title: Text('Vista previa y selección',
+            style: TextStyle(fontSize: rf(context, 4.5))),
       ),
       drawer: const AppDrawer(),
       child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 16),
         children: [
-          // 1. Contador de selección
+          // Contador
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF00ACC1).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFF00ACC1), width: 1),
+                border:
+                    Border.all(color: const Color(0xFF00ACC1), width: 1),
               ),
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -122,11 +119,15 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
                 children: [
                   Text(
                     'Seleccionadas: $selectedCount de $totalCount',
-                    style: TextStyle(fontSize: fontNormal, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                        fontSize: fontNormal,
+                        fontWeight: FontWeight.bold),
                   ),
                   TextButton(
                     onPressed: provider.selectAll,
-                    child: Text('Seleccionar todas', style: TextStyle(fontSize: fontNormal * 0.9)),
+                    child: Text('Seleccionar todas',
+                        style:
+                            TextStyle(fontSize: fontNormal * 0.9)),
                   ),
                 ],
               ),
@@ -135,13 +136,14 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
 
           const SizedBox(height: 16),
 
-          // 2. Grid de fotos
+          // Grid de fotos
           if (photos.isNotEmpty)
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
@@ -162,7 +164,8 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
                         if (isSelected)
                           Container(
                             color: Colors.black38,
-                            child: const Icon(Icons.check_circle, color: Colors.lime, size: 30),
+                            child: const Icon(Icons.check_circle,
+                                color: Colors.lime, size: 30),
                           ),
                       ],
                     ),
@@ -173,47 +176,89 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
 
           const SizedBox(height: 24),
 
-          // 3. Formulario del nombre
+          // Formulario nombre + año
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ponle un nombre a este grupo de fotos',
-                  style: TextStyle(fontSize: fontNormal, fontWeight: FontWeight.w600),
+                  'Nombre del álbum',
+                  style: TextStyle(
+                      fontSize: fontNormal,
+                      fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _titleController,
                   decoration: InputDecoration(
-                    hintText: 'Nombre del álbum',
+                    hintText: 'Ej: Vacaciones, Cumpleaños...',
                     border: const OutlineInputBorder(),
                     filled: true,
                     fillColor: Colors.grey[50],
                     suffixIcon: IconButton(
-                      icon: const Icon(Icons.mic, color: Color(0xFF00ACC1)),
+                      icon: const Icon(Icons.mic,
+                          color: Color(0xFF00ACC1)),
                       onPressed: _dictateTitle,
                     ),
                   ),
                 ),
-                if (_suggestedTitle != null) ...[
-                  const SizedBox(height: 12),
-                  ActionChip(
-                    backgroundColor: const Color(0xFF00ACC1).withOpacity(0.1),
-                    label: Text('Usar año sugerido: $_suggestedTitle'),
-                    onPressed: () => _titleController.text = _suggestedTitle!,
+
+                const SizedBox(height: 16),
+
+                // AÑO — campo obligatorio
+                Text(
+                  '¿A qué año pertenecen estas fotos? *',
+                  style: TextStyle(
+                      fontSize: fontNormal,
+                      fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _yearController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                  decoration: InputDecoration(
+                    hintText: 'Ej: 2019',
+                    border: const OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                    counterText: '',
+                    errorText: _yearError,
                   ),
-                ],
+                  onChanged: (_) {
+                    if (_yearError != null) {
+                      setState(() => _yearError = null);
+                    }
+                  },
+                ),
+
+                const SizedBox(height: 8),
+
+                // Chips de años rápidos
+                Wrap(
+                  spacing: 8,
+                  children: _quickYears().map((y) {
+                    return ActionChip(
+                      label: Text('$y'),
+                      backgroundColor:
+                          const Color(0xFF00ACC1).withOpacity(0.1),
+                      onPressed: () {
+                        _yearController.text = '$y';
+                        setState(() => _yearError = null);
+                      },
+                    );
+                  }).toList(),
+                ),
               ],
             ),
           ),
 
-          const SizedBox(height: 40), // Espacio visual antes de los botones
+          const SizedBox(height: 40),
 
-          // 4. Botones de acción (ahora parte del scroll)
+          // Botones
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -229,7 +274,10 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
                     onPressed: () {
                       provider.clear();
                       Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (_) => const UploadView()), (r) => false);
+                        MaterialPageRoute(
+                            builder: (_) => const UploadView()),
+                        (r) => false,
+                      );
                     },
                     child: const Text('Cancelar'),
                   ),
@@ -239,33 +287,33 @@ class _PreviewSelectionViewState extends State<PreviewSelectionView> {
                   height: buttonHeight,
                   child: ElevatedButton(
                     onPressed: selectedCount > 0 && !_saving
-                        ? () async {
-                            setState(() => _saving = true);
-                            final name = _titleController.text.isNotEmpty
-                                ? _titleController.text
-                                : (_suggestedTitle ?? 'Álbum');
-                            await provider.saveAlbum(name);
-                            if (!context.mounted) return;
-                            setState(() => _saving = false);
-                            Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(builder: (_) => const AlbumsListView()));
-                          }
+                        ? () => _save(provider)
                         : null,
                     child: _saving
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Subir y Guardar', textAlign: TextAlign.center),
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2))
+                        : const Text('Subir y Guardar',
+                            textAlign: TextAlign.center),
                   ),
                 ),
               ],
             ),
           ),
+
           const SizedBox(height: 20),
-          Center(
-            child: VoiceControlWidget(onCommand: _handleVoice),
-          ),
-          const SizedBox(height: 60), // EL "SECRETO": Espacio extra al final para que no se corte
+          Center(child: VoiceControlWidget(onCommand: handleVoice)),
+          const SizedBox(height: 60),
         ],
       ),
     );
+  }
+
+  // Últimos 5 años como acceso rápido
+  List<int> _quickYears() {
+    final current = DateTime.now().year;
+    return List.generate(5, (i) => current - i);
   }
 }

@@ -7,8 +7,9 @@ import '../../domain/photo.dart';
 class PhotoAlbum {
   String name;
   final List<Photo> photos;
+  final int? year; // año del álbum guardado explícitamente
 
-  PhotoAlbum({required this.name, required this.photos});
+  PhotoAlbum({required this.name, required this.photos, this.year});
 }
 
 class PhotoProvider extends ChangeNotifier {
@@ -18,8 +19,6 @@ class PhotoProvider extends ChangeNotifier {
   final List<Photo> _discarded = [];
   final List<Photo> _selected = [];
   final List<PhotoAlbum> _albums = [];
-
-  // portada por año: { 2019: 'foto_verano.jpg', 2023: 'boda.jpg' }
   final Map<int, String> _coverByYear = {};
 
   List<PhotoAlbum> get albums => List.unmodifiable(_albums);
@@ -32,7 +31,6 @@ class PhotoProvider extends ChangeNotifier {
   List<Photo> get selected => List.unmodifiable(_selected);
   bool get hasNext => _currentIndex + 1 < _photos.length;
 
-  /// Devuelve la foto de portada para un año dado, o null si no hay ninguna.
   Photo? coverPhotoForYear(int year, List<Photo> photos) {
     final coverName = _coverByYear[year];
     if (coverName == null) return photos.isNotEmpty ? photos.first : null;
@@ -42,7 +40,6 @@ class PhotoProvider extends ChangeNotifier {
     );
   }
 
-  /// Establece la portada de un año y la persiste.
   Future<void> setCoverPhoto(int year, String photoName) async {
     _coverByYear[year] = photoName;
     await _saveMetadata();
@@ -110,17 +107,30 @@ class PhotoProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveAlbum(String name) async {
+  // year ahora es parámetro explícito obligatorio
+  Future<void> saveAlbum(String name, {int? year}) async {
     if (_selected.isEmpty) return;
     final photosToSave = List<Photo>.from(_selected);
 
-    // marcar isCover en la foto que tenga el flag
+    // asignar el año a cada foto
+    if (year != null) {
+      for (final p in photosToSave) {
+        p.year = year;
+      }
+    }
+
+    // portada: la que tenga isCover, si no la primera
     final cover = photosToSave.firstWhere(
       (p) => p.isCover,
       orElse: () => photosToSave.first,
     );
 
-    _albums.add(PhotoAlbum(name: name, photos: photosToSave));
+    _albums.add(PhotoAlbum(name: name, photos: photosToSave, year: year));
+
+    if (year != null) {
+      _coverByYear[year] = cover.name;
+      await _saveMetadata();
+    }
 
     if (!kIsWeb) {
       try {
@@ -138,20 +148,7 @@ class PhotoProvider extends ChangeNotifier {
       }
     }
 
-    // intentar extraer el año del nombre del álbum o de las fotos
-    final year = _extractYear(name) ??
-        _extractYear(photosToSave.first.name);
-    if (year != null) {
-      _coverByYear[year] = cover.name;
-      await _saveMetadata();
-    }
-
     clear();
-  }
-
-  int? _extractYear(String text) {
-    final match = RegExp(r'(19|20)\d{2}').firstMatch(text);
-    return match != null ? int.tryParse(match.group(0)!) : null;
   }
 
   Future<void> deleteAlbum(String name) async {
@@ -196,7 +193,7 @@ class PhotoProvider extends ChangeNotifier {
             if (entity is Directory) {
               final name =
                   entity.path.split(Platform.pathSeparator).last;
-              if (name == '_metadata') continue; // carpeta interna
+              if (name == '_metadata') continue;
               final photos = <Photo>[];
               for (var fileEnt in entity.listSync()) {
                 if (fileEnt is File) {
@@ -209,7 +206,10 @@ class PhotoProvider extends ChangeNotifier {
                   } catch (_) {}
                 }
               }
-              _albums.add(PhotoAlbum(name: name, photos: photos));
+              // intentar recuperar año del metadata
+              final year = _extractYear(name);
+              _albums.add(
+                  PhotoAlbum(name: name, photos: photos, year: year));
             }
           }
           notifyListeners();
@@ -220,7 +220,11 @@ class PhotoProvider extends ChangeNotifier {
     }
   }
 
-  // Persiste el mapa coverByYear como JSON
+  int? _extractYear(String text) {
+    final match = RegExp(r'(19|20)\d{2}').firstMatch(text);
+    return match != null ? int.tryParse(match.group(0)!) : null;
+  }
+
   Future<void> _saveMetadata() async {
     if (kIsWeb) return;
     try {
@@ -238,7 +242,8 @@ class PhotoProvider extends ChangeNotifier {
     try {
       final file = File('$basePath/_metadata/covers.json');
       if (await file.exists()) {
-        final raw = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final raw = jsonDecode(await file.readAsString())
+            as Map<String, dynamic>;
         raw.forEach((k, v) {
           final year = int.tryParse(k);
           if (year != null) _coverByYear[year] = v as String;

@@ -58,19 +58,21 @@ class _TimelineViewState extends State<TimelineView> {
 
   // Deriva _photosByYear directo del provider en cada build
   Map<int, List<Photo>> _groupPhotosByYear(PhotoProvider provider) {
-    final allPhotos = <Photo>[];
-    for (var album in provider.albums) {
-      allPhotos.addAll(album.photos);
-    }
-    final Map<int, List<Photo>> grouped = {};
-    for (var photo in allPhotos) {
-      final year = _extractYearFromName(photo.name);
+  final Map<int, List<Photo>> grouped = {};
+  for (var album in provider.albums) {
+    for (var photo in album.photos) {
+      // prioridad: año explícito del photo, luego año del álbum, luego regex del nombre
+      final year = photo.year
+          ?? album.year
+          ?? _extractYearFromName(photo.name)
+          ?? _extractYearFromName(album.name);
       if (year != null) {
         grouped.putIfAbsent(year, () => []).add(photo);
       }
     }
-    return grouped;
   }
+  return grouped;
+ }
 
   int? _extractYearFromName(String name) {
     final regex = RegExp(r'(19|20)\d{2}');
@@ -390,7 +392,9 @@ class _TimelineViewState extends State<TimelineView> {
           const Divider(height: 1, thickness: 0.5),
 
           Expanded(
-            child: _buildEmptyState(primaryColor),
+            child: SingleChildScrollView(
+              child: _buildEmptyState(primaryColor),
+            ),
           ),
         ],
       ),

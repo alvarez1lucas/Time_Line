@@ -5,11 +5,13 @@ class Photo {
   final Uint8List bytes;
   String description;
   bool isCover;
+  int? year; 
 
   Photo({
     required this.name,
     required this.bytes,
     this.description = '',
     this.isCover = false,
+    this.year,
   });
 }

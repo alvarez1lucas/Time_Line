@@ -34,13 +34,11 @@ class AlbumsListView extends StatelessWidget {
         itemCount: albums.length,
         itemBuilder: (context, idx) {
           final album = albums[idx];
-          final year = _extractYear(album.name);
           final cover = album.photos.isNotEmpty ? album.photos.first.bytes : Uint8List(0);
           return GestureDetector(
-            onTap: () {
-              Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (_) => AlbumView(albumName: album.name)));
-            },
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => AlbumView(albumName: album.name)),
+            ),
             child: Card(
               child: Stack(
                 children: [
@@ -50,13 +48,40 @@ class AlbumsListView extends StatelessWidget {
                       if (cover.isNotEmpty)
                         Expanded(child: Image.memory(cover, fit: BoxFit.cover)),
                       Padding(
-                        padding: const EdgeInsets.all(4.0),
+                        padding: const EdgeInsets.all(4),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(album.name, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold)),
-                            Text('${album.photos.length} fotos', style: TextStyle(fontSize: fontSize * 0.9)),
-                            if (year != null) Text('Año $year', style: TextStyle(fontSize: fontSize * 0.8)),
+                            Text(album.name,
+                                style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.bold)),
+                            Text('${album.photos.length} fotos',
+                                style: TextStyle(fontSize: fontSize * 0.9)),
+                            if (album.year != null)
+                              Text('Año ${album.year}',
+                                  style: TextStyle(fontSize: fontSize * 0.8)),
+
+                            const SizedBox(height: 6),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.timeline, size: 14),
+                                label: const Text('Ver en línea de vida',
+                                    style: TextStyle(fontSize: 11)),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 4, horizontal: 8),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () {
+                                  Navigator.of(context).pushNamed('/timeline');
+                                  // o si no tenés named routes:
+                                  // Navigator.of(context).push(MaterialPageRoute(
+                                  //   builder: (_) => const TimelineView()));
+                                },
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -72,10 +97,15 @@ class AlbumsListView extends StatelessWidget {
                           context: context,
                           builder: (ctx) => AlertDialog(
                             title: const Text('Eliminar álbum'),
-                            content: Text('¿Eliminar "$album.name"? Esta acción no se puede deshacer.'),
+                            content: Text(
+                                '¿Eliminar "${album.name}"? Esta acción no se puede deshacer.'),
                             actions: [
-                              TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
-                              TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Borrar')),
+                              TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(false),
+                                  child: const Text('Cancelar')),
+                              TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(true),
+                                  child: const Text('Borrar')),
                             ],
                           ),
                         );
